@@ -215,7 +215,7 @@ async function GetTileFunction(url: string, abortController: AbortController) {
 // Script
 // --------------------------------------------------
 
-let pmtiles: PMTiles | undefined;
+let pmtiles: PMTiles;
 let manager: mlcontour.LocalDemManager;
 if (pmtilesTester.test(demUrl)) {
   pmtiles = openPMtiles(demUrl.replace(pmtilesTester, ""));
