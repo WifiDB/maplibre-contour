@@ -192,7 +192,7 @@ async function GetTileFunction(url: string, abortController: AbortController) {
   const options: RequestInit = {
     signal: abortController.signal,
   };
-  console.log(url);
+
   const $zxy = extractZXYFromUrlTrim(url);
   if (!$zxy) {
     throw new Error(`Could not extract zxy from ${url}`);
