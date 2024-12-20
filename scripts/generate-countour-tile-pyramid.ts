@@ -1,6 +1,6 @@
 import { writeFileSync, mkdir } from "fs";
-import type { DemTile, Encoding } from "../dist/types";
-import exported from "../dist/index";
+import type { DemTile, Encoding } from "./dist/types";
+import {default as mlcontour} from "../dist/index.mjs";
 import { extractZXYFromUrlTrim , GetImageData, getPMtilesTile, openPMtiles} from "./node-pmtiles-adapter";	
 import { getChildren } from "@mapbox/tilebelt";
 import path from "path";
@@ -118,7 +118,7 @@ try {
 } catch (e: any) {
   console.error(e);
   console.error(
-    "Usage: npx tsx ./src/generate-countour-tile-pyramid.ts --x <x> --y <y> --z <z> --sFile <sFile> --sEncoding <sEncoding> --sMaxZoom <sMaxZoom> --increment <increment> --oMaxZoom <oMaxZoom> --oDir <oDir>",
+    "Usage: npx tsx ./generate-countour-tile-pyramid.ts --x <x> --y <y> --z <z> --sFile <sFile> --sEncoding <sEncoding> --sMaxZoom <sMaxZoom> --increment <increment> --oMaxZoom <oMaxZoom> --oDir <oDir>",
   );
   process.exit(1);
 }
@@ -184,7 +184,7 @@ async function GetTileFunction(
   const options: RequestInit = {
     signal: abortController.signal,
   };
- 
+  console.log(url);
   const $zxy = extractZXYFromUrlTrim(url)
   if (!$zxy) {
     throw new Error(`Could not extract zxy from ${url}`);
@@ -206,14 +206,14 @@ async function GetTileFunction(
 
 const pmtiles = openPMtiles(sFile);
 
-const manager = new exported.LocalDemManager({
-    demUrlPattern: "https://{z}/{x}/{y}.png", //Does not need to be real, since we are replacing fetch.
+const manager = new mlcontour.LocalDemManager({
+    demUrlPattern: "/{z}/{x}/{y}", //Does not need to be real, since we are replacing fetch.
     cacheSize: 100,
     encoding: sEncoding as Encoding,
     maxzoom: sMaxZoom,
     timeoutMs: 10000,
     decodeImage: GetImageData,
-	  getTile: GetTileFunction,
+    getTile: GetTileFunction,
 });
 
 // Use parsed command line args

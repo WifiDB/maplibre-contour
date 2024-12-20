@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { PMTiles, FetchSource, type Source } from "pmtiles";
 import { PNG } from "pngjs";
-import exported from "../dist/index";
+import {default as mlcontour} from "../dist/index.mjs";
 import type { DemTile, Encoding } from "../dist/types";
 
 const httpTester = /^https?:\/\//i;
@@ -98,7 +98,7 @@ export async function GetImageData(
 ): Promise<DemTile> {
   const buffer = await blob.arrayBuffer();
   const png = PNG.sync.read(Buffer.from(buffer));
-  const parsed = exported.decodeParsedImage(png.width, png.height, encoding, png.data as any as Uint8ClampedArray);
+  const parsed = mlcontour.decodeParsedImage(png.width, png.height, encoding, png.data as any as Uint8ClampedArray);
   if (Boolean(abortController?.signal?.aborted)) return null as any as DemTile;
   return parsed;
 }
