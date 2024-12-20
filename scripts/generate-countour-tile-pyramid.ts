@@ -1,19 +1,30 @@
 import { writeFileSync, mkdir } from "fs";
-import type { DemTile, Encoding } from "./dist/types";
-import {default as mlcontour} from "../dist/index.mjs";
-import { extractZXYFromUrlTrim , GetImageData, getPMtilesTile, openPMtiles} from "./node-pmtiles-adapter";	
+import type { Encoding } from "../dist/types";
+import { type PMTiles } from "pmtiles";
+import { default as mlcontour } from "../dist/index.mjs";
+import {
+  extractZXYFromUrlTrim,
+  GetImageData,
+  getPMtilesTile,
+  openPMtiles,
+} from "./node-pmtiles-adapter";
 import { getChildren } from "@mapbox/tilebelt";
 import path from "path";
 
 type Tile = [number, number, number];
 
+// --------------------------------------------------
+// Functions
+// --------------------------------------------------
+
+const pmtilesTester = /^pmtiles:\/\//i;
 
 // Define an interface for parsed arguments
 interface ParsedArgs {
   x: number;
   y: number;
   z: number;
-  sFile: string;
+  demUrl: string;
   sEncoding: string;
   sMaxZoom: number;
   increment: number;
@@ -29,7 +40,7 @@ function parseArgs(): ParsedArgs {
   let x: number | undefined;
   let y: number | undefined;
   let z: number | undefined;
-  let sFile: string | undefined;
+  let demUrl: string | undefined;
   let sEncoding: string | undefined;
   let sMaxZoom: number | undefined;
   let increment: number | undefined;
@@ -45,8 +56,8 @@ function parseArgs(): ParsedArgs {
       y = parseInt(argValue);
     } else if (argName === "--z") {
       z = parseInt(argValue);
-    } else if (argName === "--sFile") {
-      sFile = argValue;
+    } else if (argName === "--demUrl") {
+      demUrl = argValue;
     } else if (argName === "--sEncoding") {
       sEncoding = argValue;
     } else if (argName === "--sMaxZoom") {
@@ -70,8 +81,8 @@ function parseArgs(): ParsedArgs {
   if (isNaN(z as number)) {
     throw new Error("Invalid --z argument. Must be a number.");
   }
-  if (!sFile) {
-    throw new Error("Invalid --sFile argument. Must be a string.");
+  if (!demUrl) {
+    throw new Error("Invalid --demUrl argument. Must be a string.");
   }
   if (!sEncoding) {
     throw new Error("Invalid --sEncoding argument. Must be a string.");
@@ -93,7 +104,7 @@ function parseArgs(): ParsedArgs {
     x: x as number,
     y: y as number,
     z: z as number,
-    sFile: sFile as string,
+    demUrl: demUrl as string,
     sEncoding: sEncoding as string,
     sMaxZoom: sMaxZoom as number,
     increment: increment as number,
@@ -106,19 +117,19 @@ function parseArgs(): ParsedArgs {
 let x: number,
   y: number,
   z: number,
-  sFile: string,
+  demUrl: string,
   sEncoding: string,
   sMaxZoom: number,
   increment: number,
   oMaxZoom: number, // Renamed maxZoom to oMaxZoom
   oDir: string;
 try {
-  ({ x, y, z, sFile, sEncoding, sMaxZoom, increment, oMaxZoom, oDir } =
+  ({ x, y, z, demUrl, sEncoding, sMaxZoom, increment, oMaxZoom, oDir } =
     parseArgs());
 } catch (e: any) {
   console.error(e);
   console.error(
-    "Usage: npx tsx ./generate-countour-tile-pyramid.ts --x <x> --y <y> --z <z> --sFile <sFile> --sEncoding <sEncoding> --sMaxZoom <sMaxZoom> --increment <increment> --oMaxZoom <oMaxZoom> --oDir <oDir>",
+    "Usage: npx tsx ./generate-countour-tile-pyramid.ts --x <x> --y <y> --z <z> --demUrl <demUrl> --sEncoding <sEncoding> --sMaxZoom <sMaxZoom> --increment <increment> --oMaxZoom <oMaxZoom> --oDir <oDir>",
   );
   process.exit(1);
 }
@@ -177,20 +188,17 @@ async function processQueue(
   }
 }
 
-async function GetTileFunction(
-  url: string,
-  abortController: AbortController,
-) {
+async function GetTileFunction(url: string, abortController: AbortController) {
   const options: RequestInit = {
     signal: abortController.signal,
   };
   console.log(url);
-  const $zxy = extractZXYFromUrlTrim(url)
+  const $zxy = extractZXYFromUrlTrim(url);
   if (!$zxy) {
     throw new Error(`Could not extract zxy from ${url}`);
   }
 
-  const zxyTile = await getPMtilesTile(pmtiles, $zxy.z, $zxy.x, $zxy.y)
+  const zxyTile = await getPMtilesTile(pmtiles, $zxy.z, $zxy.x, $zxy.y);
   if (!zxyTile || !zxyTile.data) {
     throw new Error(`No tile returned for ${url}`);
   }
@@ -201,20 +209,35 @@ async function GetTileFunction(
     expires: undefined,
     cacheControl: undefined,
   };
-};
+}
 
+// --------------------------------------------------
+// Script
+// --------------------------------------------------
 
-const pmtiles = openPMtiles(sFile);
-
-const manager = new mlcontour.LocalDemManager({
-    demUrlPattern: "/{z}/{x}/{y}", //Does not need to be real, since we are replacing fetch.
+let pmtiles: PMTiles | undefined;
+let manager: mlcontour.LocalDemManager;
+if (pmtilesTester.test(demUrl)) {
+  pmtiles = openPMtiles(demUrl.replace(pmtilesTester, ""));
+  manager = new mlcontour.LocalDemManager({
+    demUrlPattern: "/{z}/{x}/{y}", // Does not need to be a full url, since we are replacing getTile and using the open pmtiles file above.
     cacheSize: 100,
     encoding: sEncoding as Encoding,
     maxzoom: sMaxZoom,
     timeoutMs: 10000,
     decodeImage: GetImageData,
     getTile: GetTileFunction,
-});
+  });
+} else {
+  manager = new mlcontour.LocalDemManager({
+    demUrlPattern: demUrl,
+    cacheSize: 100,
+    encoding: sEncoding as Encoding,
+    maxzoom: sMaxZoom,
+    timeoutMs: 10000,
+    decodeImage: GetImageData,
+  });
+}
 
 // Use parsed command line args
 const children: Tile[] = getAllTiles([x, y, z], oMaxZoom);

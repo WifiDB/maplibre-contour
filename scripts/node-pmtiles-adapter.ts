@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { PMTiles, FetchSource, type Source } from "pmtiles";
 import { PNG } from "pngjs";
-import {default as mlcontour} from "../dist/index.mjs";
+import { default as mlcontour } from "../dist/index.mjs";
 import type { DemTile, Encoding } from "../dist/types";
 
 const httpTester = /^https?:\/\//i;
@@ -98,35 +98,42 @@ export async function GetImageData(
 ): Promise<DemTile> {
   const buffer = await blob.arrayBuffer();
   const png = PNG.sync.read(Buffer.from(buffer));
-  const parsed = mlcontour.decodeParsedImage(png.width, png.height, encoding, png.data as any as Uint8ClampedArray);
+  const parsed = mlcontour.decodeParsedImage(
+    png.width,
+    png.height,
+    encoding,
+    png.data as any as Uint8ClampedArray,
+  );
   if (Boolean(abortController?.signal?.aborted)) return null as any as DemTile;
   return parsed;
 }
 
-export function extractZXYFromUrlTrim(url: string): { z: number; x: number; y: number } | null {
+export function extractZXYFromUrlTrim(
+  url: string,
+): { z: number; x: number; y: number } | null {
   // 1. Find the index of the last `/`
   const lastSlashIndex = url.lastIndexOf("/");
   if (lastSlashIndex === -1) {
     return null; // URL does not have any slashes
   }
 
-    const segments = url.split("/");
-    if (segments.length <= 3){
-        return null;
-    }
+  const segments = url.split("/");
+  if (segments.length <= 3) {
+    return null;
+  }
 
-    const ySegment = segments[segments.length-1];
-    const xSegment = segments[segments.length-2];
-    const zSegment = segments[segments.length-3];
+  const ySegment = segments[segments.length - 1];
+  const xSegment = segments[segments.length - 2];
+  const zSegment = segments[segments.length - 3];
 
-    const lastDotIndex = ySegment.lastIndexOf(".");
-    const cleanedYSegment = lastDotIndex === -1 ? ySegment : ySegment.substring(0, lastDotIndex);
+  const lastDotIndex = ySegment.lastIndexOf(".");
+  const cleanedYSegment =
+    lastDotIndex === -1 ? ySegment : ySegment.substring(0, lastDotIndex);
 
   // 3. Attempt to parse segments as numbers
   const z = parseInt(zSegment, 10);
   const x = parseInt(xSegment, 10);
   const y = parseInt(cleanedYSegment, 10);
-
 
   if (isNaN(z) || isNaN(x) || isNaN(y)) {
     return null; // Conversion failed, invalid URL format
