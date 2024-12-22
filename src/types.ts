@@ -1,12 +1,17 @@
 import type Actor from "./actor";
 import type { Timer } from "./performance";
 import type WorkerDispatch from "./worker-dispatch";
+import { GeomType } from "./vtpbf";
+import type { Position } from 'geojson';
+
 
 /** Scheme used to map pixel rgb values elevations. */
 export type Encoding = "terrarium" | "mapbox";
+
 export interface IsTransferrable {
   transferrables: Transferable[];
 }
+
 /** A decoded `raster-rgb` image. */
 export interface DemTile {
   width: number;
@@ -14,12 +19,15 @@ export interface DemTile {
   /** elevation values in row-major order */
   data: Float32Array;
 }
+
 export interface TransferrableDemTile extends DemTile, IsTransferrable {}
+
 /** A rendered contour tile */
 export interface ContourTile {
   /** Encoded mapbox vector tile bytes */
   arrayBuffer: ArrayBuffer;
 }
+
 export interface TransferrableContourTile
   extends ContourTile,
     IsTransferrable {}
@@ -35,15 +43,15 @@ export interface ContourTileOptions {
   /** Factor to scale the elevation meters by to support different units (default 1 for meters) */
   multiplier?: number;
   /**
-   * Request `raster-dem` tiles from lower zoom levels to generate the contour vector tile.
-   *
-   * The default value is 0, which means to generate a contour vector tile at z10, it gets
-   * the z10 `raster-dem` tile plus its 8 neighbors
-   *
-   * Setting to 1 requests a z9 tile and uses one quadrant of it so that it only needs up to 3
-   * neighboring tiles to get the neighboring elevation data. It also improves performance with
-   * 512x512 or larger `raster-dem` tiles.
-   */
+    * Request `raster-dem` tiles from lower zoom levels to generate the contour vector tile.
+    *
+    * The default value is 0, which means to generate a contour vector tile at z10, it gets
+    * the z10 `raster-dem` tile plus its 8 neighbors
+    *
+    * Setting to 1 requests a z9 tile and uses one quadrant of it so that it only needs up to 3
+    * neighboring tiles to get the neighboring elevation data. It also improves performance with
+    * 512x512 or larger `raster-dem` tiles.
+    */
   overzoom?: number;
   /** Key for the elevation property to set on each contour line. */
   elevationKey?: string;
@@ -57,22 +65,33 @@ export interface ContourTileOptions {
   buffer?: number;
   /** When overzooming tiles, subsample to scale up to at least this size to make the contour lines smoother at higher zooms. */
   subsampleBelow?: number;
+
+   /**
+    * Enables or disables smoothing
+    * @default true
+    */
+   smooth?: boolean;
 }
 
 export interface GlobalContourTileOptions extends ContourTileOptions {
   /**
-   * Map from zoom level to the `[minor, major]` elevation distance between contour lines.
-   *
-   * Contour lines without an entry will use the threshold for the next lower zoom.
-   *
-   * The `level` tag on each contour line will have an integer that corresponds to the largest index in
-   * this array that the elevation is a multiple of.
-   */
+    * Map from zoom level to the `[minor, major]` elevation distance between contour lines.
+    *
+    * Contour lines without an entry will use the threshold for the next lower zoom.
+    *
+    * The `level` tag on each contour line will have an integer that corresponds to the largest index in
+    * this array that the elevation is a multiple of.
+    */
   thresholds: { [n: number]: number | number[] };
 }
 
+
 export interface IndividualContourTileOptions extends ContourTileOptions {
   levels: number[];
+  /**
+    * Overzoom parameter. Default 0.
+    */
+  overzoom?: number;
 }
 
 export interface Image {
@@ -109,6 +128,7 @@ export interface Timing {
   /** If the tile failed with an error */
   error?: boolean;
 }
+
 
 /**
  * Holds cached tile state, and exposes `fetchContourTile` which fetches the necessary
@@ -169,3 +189,23 @@ export type DemManagerInitizlizationParameters =
 export type InitMessage = DemManagerRequiredInitializationParameters & {
   managerId: number;
 };
+
+export interface Feature {
+    type: GeomType;
+    geometry: Position[][];
+    properties: { [key: string]: number };
+  }
+  
+  export interface Layer {
+    features: Feature[];
+    extent?: number; // set the property to be optional here
+  }
+  
+  export interface Tile {
+    layers: {
+      [id: string]: Layer;
+    };
+    extent?: number
+  }
+
+export type { Position };

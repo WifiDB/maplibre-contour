@@ -25,6 +25,8 @@ SOFTWARE.
 */
 
 import Pbf from "pbf";
+import type { Feature, Layer, Tile, Position } from "./types";
+
 
 export const enum GeomType {
   UNKNOWN = 0,
@@ -35,21 +37,6 @@ export const enum GeomType {
 
 export type PropertyValue = string | boolean | number;
 
-export interface Feature {
-  type: GeomType;
-  properties: { [key: string]: PropertyValue };
-  geometry: number[][];
-}
-
-export interface Layer {
-  features: Feature[];
-  extent?: number;
-}
-
-export interface Tile {
-  extent?: number;
-  layers: { [id: string]: Layer };
-}
 
 interface Context {
   keys: string[];
@@ -74,7 +61,7 @@ export default function encodeVectorTile(tile: Tile): Uint8Array {
   return pbf.finish();
 }
 
-function writeLayer(layer: Layer & { id: string }, pbf?: Pbf) {
+function writeLayer(layer: Layer & { id: string, extent?:number }, pbf?: Pbf) {
   if (!pbf) throw new Error("pbf undefined");
   pbf.writeVarintField(15, 2);
   pbf.writeStringField(1, layer.id || "");
@@ -86,6 +73,15 @@ function writeLayer(layer: Layer & { id: string }, pbf?: Pbf) {
     keycache: {},
     valuecache: {},
   };
+
+  function writeFeature(context: Context, pbf?: Pbf) {
+    const feature = context.feature;
+    if (!feature || !pbf) throw new Error();
+
+    pbf.writeMessage(2, writeProperties, context);
+    pbf.writeVarintField(3, feature.type);
+    pbf.writeMessage(4, writeGeometry, feature);
+  }
 
   for (const feature of layer.features) {
     context.feature = feature;
@@ -101,15 +97,6 @@ function writeLayer(layer: Layer & { id: string }, pbf?: Pbf) {
   }
 }
 
-function writeFeature(context: Context, pbf?: Pbf) {
-  const feature = context.feature;
-  if (!feature || !pbf) throw new Error();
-
-  pbf.writeMessage(2, writeProperties, context);
-  pbf.writeVarintField(3, feature.type);
-  pbf.writeMessage(4, writeGeometry, feature);
-}
-
 function writeProperties(context: Context, pbf?: Pbf) {
   const feature = context.feature;
   if (!feature || !pbf) throw new Error();
@@ -119,7 +106,7 @@ function writeProperties(context: Context, pbf?: Pbf) {
   const valuecache = context.valuecache;
 
   for (const key in feature.properties) {
-    let value = feature.properties[key];
+    let value: PropertyValue = feature.properties[key];
 
     let keyIndex = keycache[key];
     if (value === null) continue; // don't encode null value properties
@@ -157,32 +144,61 @@ function zigzag(num: number) {
 function writeGeometry(feature: Feature, pbf?: Pbf) {
   if (!pbf) throw new Error();
   const geometry = feature.geometry;
-  const type = feature.type;
+  const type: GeomType = feature.type;
   let x = 0;
   let y = 0;
-  for (const ring of geometry) {
-    let count = 1;
-    if (type === GeomType.POINT) {
-      count = ring.length / 2;
-    }
-    pbf.writeVarint(command(1, count)); // moveto
-    // do not write polygon closing path as lineto
-    const length = ring.length / 2;
-    const lineCount = type === GeomType.POLYGON ? length - 1 : length;
-    for (let i = 0; i < lineCount; i++) {
-      if (i === 1 && type !== 1) {
-        pbf.writeVarint(command(2, lineCount - 1)); // lineto
+
+  if (type === GeomType.POLYGON) {
+       for (const ring of geometry) {
+          const count = ring.length;
+          pbf.writeVarint(command(1, count)); // moveto
+          for (let i = 0; i < ring.length; i++) {
+              const dx = ring[i][0] - x;
+              const dy = ring[i][1] - y;
+              pbf.writeVarint(zigzag(dx));
+              pbf.writeVarint(zigzag(dy));
+              x += dx;
+              y += dy;
+          }
+          pbf.writeVarint(command(7, 1)); // closepath
       }
-      const dx = ring[i * 2] - x;
-      const dy = ring[i * 2 + 1] - y;
-      pbf.writeVarint(zigzag(dx));
-      pbf.writeVarint(zigzag(dy));
-      x += dx;
-      y += dy;
-    }
-    if (type === GeomType.POLYGON) {
-      pbf.writeVarint(command(7, 1)); // closepath
-    }
+  }
+  if (type === GeomType.POINT) {
+       for (const ring of geometry) {
+        const count = ring.length / 2;
+
+          pbf.writeVarint(command(1, count)); // moveto
+            const length = ring.length / 2;
+          for (let i = 0; i < length; i++) {
+          const dx = ring[i * 2][0] - x;
+          const dy = ring[i * 2 + 1][1] - y;
+          pbf.writeVarint(zigzag(dx));
+          pbf.writeVarint(zigzag(dy));
+          x += dx;
+          y += dy;
+          }
+      }
+  }
+  if (type === GeomType.LINESTRING){
+      for (const ring of geometry) {
+          const count = 1;
+
+          pbf.writeVarint(command(1, count)); // moveto
+
+         const length = ring.length / 2;
+          for (let i = 0; i < length; i++) {
+              if (i === 1) {
+                  pbf.writeVarint(command(2, length - 1)); // lineto
+              }
+                const dx = ring[i * 2][0] - x;
+                const dy = ring[i * 2 + 1][1] - y;
+                pbf.writeVarint(zigzag(dx));
+                pbf.writeVarint(zigzag(dy));
+                x += dx;
+                y += dy;
+          }
+
+      }
   }
 }
 
