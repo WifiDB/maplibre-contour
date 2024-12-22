@@ -21,36 +21,17 @@ import type { HeightTile } from "./height-tile";
 class Fragment {
   start: number;
   end: number;
-  points: number[];
+  ring: number[][];
   closed: boolean = false; // add a flag to check if contour is closed
 
   constructor(start: number, end: number) {
     this.start = start;
     this.end = end;
-    this.points = [];
-    this.append = this.append.bind(this);
-    this.prepend = this.prepend.bind(this);
-  }
-
-  append(x: number, y: number) {
-    this.points.push(Math.round(x), Math.round(y));
-  }
-
-  prepend(x: number, y: number) {
-    this.points.splice(0, 0, Math.round(x), Math.round(y));
-  }
-
-  lineString() {
-    return this.points;
+    this.ring = [];
   }
 
   isEmpty() {
-    return this.points.length < 2;
-  }
-
-  appendFragment(other: Fragment) {
-    this.points.push(...other.points);
-    this.end = other.end;
+    return this.ring.length < 2;
   }
   close() {
     this.closed = true;
@@ -163,6 +144,37 @@ function index(width: number, x: number, y: number, point: [number, number]) {
 function ratio(a: number, b: number, c: number) {
   return (b - a) / (c - a);
 }
+function smoothLinear(
+  ring: number[][],
+  values: HeightTile,
+  value: number,
+  dx: number,
+  dy: number,
+) {
+  ring.forEach(function (point) {
+    var x = point[0],
+      y = point[1],
+      xt = x | 0,
+      yt = y | 0,
+      v1 = valid(values.get(xt, yt));
+    if (x > 0 && x < dx && xt === x) {
+      point[0] = smooth1(x, valid(values.get(xt - 1, yt)), v1, value);
+    }
+    if (y > 0 && y < dy && yt === y) {
+      point[1] = smooth1(y, valid(values.get(xt, yt - 1)), v1, value);
+    }
+  });
+}
+
+function valid(v: number) {
+  return v == null || isNaN((v = +v)) ? -Infinity : v;
+}
+function smooth1(x: number, v0: number, v1: number, value: number) {
+  const a = value - v0;
+  const b = v1 - v0;
+  const d = isFinite(a) || isFinite(b) ? a / b : Math.sign(a) / Math.sign(b);
+  return isNaN(d) ? x : x + d - 0.5;
+}
 
 /**
  * Generates contour polygons from a HeightTile
@@ -179,17 +191,21 @@ export default function generateIsolines(
   tile: HeightTile,
   extent: number = 4096,
   buffer: number = 1,
+  smooth = true,
 ): { [ele: number]: number[][][] } {
-  // Modified return type
   if (!interval) {
     return {};
   }
   const multiplier = extent / (tile.width - 1);
   let tld: number, trd: number, bld: number, brd: number;
   let r: number, c: number;
-  const polygons: { [ele: string]: number[][][] } = {}; // Changed from line string segments
-  const fragmentByStartByLevel: Map<number, Map<number, Fragment>> = new Map();
-  const fragmentByEndByLevel: Map<number, Map<number, Fragment>> = new Map();
+  const polygons: { [ele: string]: number[][][] } = {};
+  const fragmentByStartByLevel: {
+    [level: number]: { [index: number]: Fragment };
+  } = {};
+  const fragmentByEndByLevel: {
+    [level: number]: { [index: number]: Fragment };
+  } = {};
 
   function interpolate(
     point: [number, number],
@@ -246,74 +262,94 @@ export default function generateIsolines(
         for (const segment of CASES[
           (tl ? 8 : 0) | (tr ? 4 : 0) | (br ? 2 : 0) | (bl ? 1 : 0)
         ]) {
-          let fragmentByStart = fragmentByStartByLevel.get(threshold);
+          let fragmentByStart = fragmentByStartByLevel[threshold];
           if (!fragmentByStart)
-            fragmentByStartByLevel.set(
-              threshold,
-              (fragmentByStart = new Map()),
-            );
-          let fragmentByEnd = fragmentByEndByLevel.get(threshold);
+            fragmentByStartByLevel[threshold] = fragmentByStart = {};
+
+          let fragmentByEnd = fragmentByEndByLevel[threshold];
           if (!fragmentByEnd)
-            fragmentByEndByLevel.set(threshold, (fragmentByEnd = new Map()));
+            fragmentByEndByLevel[threshold] = fragmentByEnd = {};
+
           const start = segment[0];
           const end = segment[1];
           const startIndex = index(tile.width, c, r, start);
           const endIndex = index(tile.width, c, r, end);
           let f, g;
+          const startPoint: number[] = [];
+          interpolate(start, threshold, (x, y) => startPoint.push(x, y));
+          const endPoint: number[] = [];
+          interpolate(end, threshold, (x, y) => endPoint.push(x, y));
 
-          if ((f = fragmentByEnd.get(startIndex))) {
-            fragmentByEnd.delete(startIndex);
-            if ((g = fragmentByStart.get(endIndex))) {
-              fragmentByStart.delete(endIndex);
+          if ((f = fragmentByEnd[startIndex])) {
+            delete fragmentByEnd[startIndex];
+            if ((g = fragmentByStart[endIndex])) {
+              delete fragmentByStart[endIndex];
               if (f === g) {
                 // closing a ring, polygon detected
-                interpolate(end, threshold, f.append);
+                f.ring.push(endPoint);
                 if (!f.isEmpty()) {
                   let list = polygons[threshold];
                   if (!list) {
                     polygons[threshold] = list = [];
                   }
-                  f.close(); // mark that the contour has been closed
-                  list.push([f.lineString()]); // push a closed polygon, note that we keep the old f.lineString() method.
+                  if (smooth)
+                    smoothLinear(
+                      f.ring,
+                      tile,
+                      threshold,
+                      tile.width,
+                      tile.height,
+                    );
+
+                  f.close();
+                  list.push([f.ring]);
                 }
               } else {
                 // connecting 2 segments
-                f.appendFragment(g);
-                fragmentByEnd.set((f.end = g.end), f);
+                f.ring.push(endPoint);
+                g.ring.forEach((p) => f.ring.push(p));
+
+                fragmentByEnd[(f.end = g.end)] = f;
               }
             } else {
               // adding to the end of f
-              interpolate(end, threshold, f.append);
-              fragmentByEnd.set((f.end = endIndex), f);
+              f.ring.push(endPoint);
+              fragmentByEnd[(f.end = endIndex)] = f;
             }
-          } else if ((f = fragmentByStart.get(endIndex))) {
-            fragmentByStart.delete(endIndex);
+          } else if ((f = fragmentByStart[endIndex])) {
+            delete fragmentByStart[endIndex];
             // extending the start of f
-            interpolate(start, threshold, f.prepend);
-            fragmentByStart.set((f.start = startIndex), f);
+            f.ring.unshift(startPoint);
+            fragmentByStart[(f.start = startIndex)] = f;
           } else {
             // starting a new fragment
             const newFrag = new Fragment(startIndex, endIndex);
-            interpolate(start, threshold, newFrag.append);
-            interpolate(end, threshold, newFrag.append);
-            fragmentByStart.set(startIndex, newFrag);
-            fragmentByEnd.set(endIndex, newFrag);
+            newFrag.ring.push(startPoint);
+            newFrag.ring.push(endPoint);
+            fragmentByStart[startIndex] = fragmentByEnd[endIndex] = newFrag;
           }
         }
       }
     }
   }
-  // process the remaining open contours and stores them as lines
-  for (const [level, fragmentByStart] of fragmentByStartByLevel.entries()) {
+  for (const level in fragmentByStartByLevel) {
     let list: number[][][] | null = null;
-
-    for (const value of fragmentByStart.values()) {
+    const fragmentByStart = fragmentByStartByLevel[level];
+    for (const startIndex in fragmentByStart) {
+      const value = fragmentByStart[startIndex];
       if (!value.isEmpty() && !value.closed) {
-        // add the condition to check if the contour is not closed
         if (list == null) {
           list = polygons[level] || (polygons[level] = []);
         }
-        list.push([value.lineString()]);
+        if (smooth)
+          smoothLinear(
+            value.ring,
+            tile,
+            Number(level),
+            tile.width,
+            tile.height,
+          );
+        list.push([value.ring]);
       }
     }
   }
