@@ -19,7 +19,7 @@ import type {
 } from "./types";
 import encodeVectorTile, { GeomType } from "./vtpbf";
 import { Timer } from "./performance";
-import { Position } from 'geojson';
+import type { Position } from 'geojson';
 
 
 const defaultGetTile: GetTileFunction = async (
