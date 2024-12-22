@@ -22,6 +22,7 @@ class Fragment {
   start: number;
   end: number;
   points: number[];
+  closed: boolean = false; // add a flag to check if contour is closed
 
   constructor(start: number, end: number) {
     this.start = start;
@@ -40,7 +41,7 @@ class Fragment {
   }
 
   lineString() {
-    return this.toArray();
+    return this.points;
   }
 
   isEmpty() {
@@ -51,9 +52,8 @@ class Fragment {
     this.points.push(...other.points);
     this.end = other.end;
   }
-
-  toArray() {
-    return this.points;
+  close() {
+    this.closed = true;
   }
 }
 
@@ -165,28 +165,29 @@ function ratio(a: number, b: number, c: number) {
 }
 
 /**
- * Generates contour lines from a HeightTile
+ * Generates contour polygons from a HeightTile
  *
  * @param interval Vertical distance between contours
  * @param tile The input height tile, where values represent the height at the top-left of each pixel
  * @param extent Vector tile extent (default 4096)
  * @param buffer How many pixels into each neighboring tile to include in a tile
- * @returns an object where keys are the elevation, and values are a list of `[x1, y1, x2, y2, ...]`
- * contour lines in tile coordinates
+ * @returns an object where keys are the elevation, and values are a list of `[[x1, y1, x2, y2, ...], [...]]`
+ * polygons in tile coordinates
  */
 export default function generateIsolines(
   interval: number,
   tile: HeightTile,
   extent: number = 4096,
   buffer: number = 1,
-): { [ele: number]: number[][] } {
+): { [ele: number]: number[][][] } {
+  // Modified return type
   if (!interval) {
     return {};
   }
   const multiplier = extent / (tile.width - 1);
   let tld: number, trd: number, bld: number, brd: number;
   let r: number, c: number;
-  const segments: { [ele: string]: number[][] } = {};
+  const polygons: { [ele: string]: number[][][] } = {}; // Changed from line string segments
   const fragmentByStartByLevel: Map<number, Map<number, Fragment>> = new Map();
   const fragmentByEndByLevel: Map<number, Map<number, Fragment>> = new Map();
 
@@ -216,9 +217,6 @@ export default function generateIsolines(
     }
   }
 
-  // Most marching-squares implementations (d3-contour, gdal-contour) make one pass through the matrix per threshold.
-  // This implementation makes a single pass through the matrix, building up all of the contour lines at the
-  // same time to improve performance.
   for (r = 1 - buffer; r < tile.height + buffer; r++) {
     trd = tile.get(0, r - 1);
     brd = tile.get(0, r);
@@ -268,14 +266,15 @@ export default function generateIsolines(
             if ((g = fragmentByStart.get(endIndex))) {
               fragmentByStart.delete(endIndex);
               if (f === g) {
-                // closing a ring
+                // closing a ring, polygon detected
                 interpolate(end, threshold, f.append);
                 if (!f.isEmpty()) {
-                  let list = segments[threshold];
+                  let list = polygons[threshold];
                   if (!list) {
-                    segments[threshold] = list = [];
+                    polygons[threshold] = list = [];
                   }
-                  list.push(f.lineString());
+                  f.close(); // mark that the contour has been closed
+                  list.push([f.lineString()]); // push a closed polygon, note that we keep the old f.lineString() method.
                 }
               } else {
                 // connecting 2 segments
@@ -304,18 +303,20 @@ export default function generateIsolines(
       }
     }
   }
-
+  // process the remaining open contours and stores them as lines
   for (const [level, fragmentByStart] of fragmentByStartByLevel.entries()) {
-    let list: number[][] | null = null;
+    let list: number[][][] | null = null;
+
     for (const value of fragmentByStart.values()) {
-      if (!value.isEmpty()) {
+      if (!value.isEmpty() && !value.closed) {
+        // add the condition to check if the contour is not closed
         if (list == null) {
-          list = segments[level] || (segments[level] = []);
+          list = polygons[level] || (polygons[level] = []);
         }
-        list.push(value.lineString());
+        list.push([value.lineString()]);
       }
     }
   }
 
-  return segments;
+  return polygons;
 }

@@ -231,19 +231,21 @@ export class LocalDemManager implements DemManager {
           extent,
           layers: {
             [contourLayer]: {
-              features: Object.entries(isolines).map(([eleString, geom]) => {
-                const ele = Number(eleString);
-                return {
-                  type: GeomType.LINESTRING,
-                  geometry: geom,
-                  properties: {
-                    [elevationKey]: ele,
-                    [levelKey]: Math.max(
-                      ...levels.map((l, i) => (ele % l === 0 ? i : 0)),
-                    ),
-                  },
-                };
-              }),
+              features: Object.entries(isolines).flatMap(
+                ([eleString, polygons]) => {
+                  const ele = Number(eleString);
+                  return polygons.map((polygon) => ({
+                    type: GeomType.POLYGON,
+                    geometry: polygon,
+                    properties: {
+                      [elevationKey]: ele,
+                      [levelKey]: Math.max(
+                        ...levels.map((l, i) => (ele % l === 0 ? i : 0)),
+                      ),
+                    },
+                  }));
+                },
+              ),
             },
           },
         });
