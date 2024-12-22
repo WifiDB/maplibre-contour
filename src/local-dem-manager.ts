@@ -218,20 +218,19 @@ export class LocalDemManager implements DemManager {
           .averagePixelCentersToGrid()
           .scaleElevation(multiplier)
           .materialize(1);
-
-        const isolines = generateIsolines(
-          levels[0],
-          virtualTile,
-          extent,
-          buffer,
-        );
+        // generate the isolines for all zoom levels and cache them at the manager
+        let allIsolines: { [level: string]: number[][][] } = {};
+        for (const level of levels) {
+          const isolines = generateIsolines(level, virtualTile, extent, buffer);
+          allIsolines = { ...allIsolines, ...isolines };
+        }
 
         mark?.();
         const result = encodeVectorTile({
           extent,
           layers: {
             [contourLayer]: {
-              features: Object.entries(isolines).flatMap(
+              features: Object.entries(allIsolines).flatMap(
                 ([eleString, polygons]) => {
                   const ele = Number(eleString);
                   return polygons.map((polygon) => ({
