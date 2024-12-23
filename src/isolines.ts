@@ -1,7 +1,7 @@
 import type { HeightTile } from "./height-tile";
 import {contours} from "d3-contour";
 import {extent} from "d3-array";
-import type { Position } from 'geojson';
+import { Position } from 'geojson';
 
 /**
  * Generates contour polygons from a HeightTile
@@ -24,20 +24,21 @@ export default function generateIsolines(
     if (!interval) {
         return {};
     }
-     const threshold = (values:ArrayLike<number>):number[] => {
-        const e = extent(Array.from(values), (x) => isFinite(x) ? x : NaN)
-        if(!e) return [];
-         let eMin:number = 0, eMax:number = 0;
-         if(Array.isArray(e)){
-             eMin = e[0] !== undefined ? e[0] : 0;
-             eMax = e[1] !== undefined ? e[1] : 0
-         } else{
-             eMin = e !== undefined ? e : 0;
-             eMax = e !== undefined ? e : 0;
-         }
-          const niceThreshold = Math.ceil((eMax - eMin) / interval)
-        return  [...Array(niceThreshold).keys()].map(i => eMin + i * interval)
-    };
+    const threshold = (values:ArrayLike<number>):number[] => {
+      const e = extent(Array.from(values), (x) => isFinite(x) ? x : NaN)
+      if(!e) return [];
+      let eMin:number, eMax:number;
+      if(Array.isArray(e)){
+          eMin = e[0] !== undefined ? Number(e[0]) : 0;
+          eMax = e[1] !== undefined ? Number(e[1]) : 0
+      } else{
+          eMin = e !== undefined ? Number(e) : 0;
+           eMax = e !== undefined ? Number(e) : 0;
+      }
+      if(eMin === undefined || eMax === undefined) return [];
+      const niceThreshold = Math.ceil((eMax - eMin) / interval)
+      return  [...Array(niceThreshold).keys()].map(i => eMin + i * interval)
+  };
 
     const contourGenerator = contours()
         .size([tile.width, tile.height])
@@ -52,13 +53,29 @@ export default function generateIsolines(
           const closedPolygons: Position[][][] = [];
         for(const polygon of polygons){
             const firstPoint = polygon[0];
-            const lastPoint = polygon[polygon.length - 1];
+             const lastPoint = polygon[polygon.length - 1];
            if (firstPoint[0] !== lastPoint[0] || firstPoint[1] !== lastPoint[1]) {
                 polygon.push(firstPoint);
             }
-            closedPolygons.push(polygon);
+              const splitPolygons : Position[][] = [];
+              let currentPolygon : Position[] = []
+             for(const point of polygon){ // iterate over the list of points instead of a single point
+                // Check if we are at the border of the virtual tile, and start new polygon if so.
+                  if(point[0][0] <= 0 || point[0][0] >= (tile.width - 1) || point[0][1] <= 0 || point[0][1] >= (tile.height - 1)) {
+                    if(currentPolygon.length > 0) {
+                         splitPolygons.push(currentPolygon);
+                    }
+                     currentPolygon = []
+                }
+                  currentPolygon.push(point[0]) // push the current point
+             }
+             if(currentPolygon.length > 0)
+                splitPolygons.push(currentPolygon)
+              for(const poly of splitPolygons){
+                closedPolygons.push([poly]);
+              }
          }
-        allPolygons[res.value] = closedPolygons;
+         allPolygons[res.value] = closedPolygons;
     }
     return allPolygons as {[ele:string]:Position[][][]};
 }
