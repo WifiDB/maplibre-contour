@@ -1,21 +1,3 @@
-/*
-Adapted from d3-contour https://github.com/d3/d3-contour
-
-Copyright 2012-2023 Mike Bostock
-
-Permission to use, copy, modify, and/or distribute this software for any purpose
-with or without fee is hereby granted, provided that the above copyright notice
-and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
-OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
-TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
-THIS SOFTWARE.
-*/
-
 import type { HeightTile } from "./height-tile";
 
 class Fragment {
@@ -164,6 +146,73 @@ function ratio(a: number, b: number, c: number) {
   return (b - a) / (c - a);
 }
 
+function closePolygons(segments: { [ele: number]: number[][] }, tile: HeightTile, buffer: number, multiplier: number){
+  const closedSegments: { [ele: number]: number[][] } = {};
+  for(const level in segments){
+       const frags = segments[level];
+        if(!frags){
+          continue;
+        }
+      //Explicitly declare that the closedLevel array should be able to contain number[][]
+      const closedLevel = closedSegments[level] = [] as number[][];
+         const lineStringByFirstPoint = new Map<string, number[]>()
+         const lineStringByLastPoint = new Map<string, number[]>()
+
+        for(const frag of frags){
+            const first = `${frag[0]},${frag[1]}`
+            const last = `${frag[frag.length -2]},${frag[frag.length -1]}`
+             lineStringByFirstPoint.set(first, frag)
+             lineStringByLastPoint.set(last, frag)
+         }
+       const processedFrags = new Set<number[]>()
+
+       for(const frag of frags){
+           if(processedFrags.has(frag)){
+               continue
+           }
+
+         const currentFrag = frag;
+         let isClosed = false
+        while(!isClosed){
+              processedFrags.add(currentFrag);
+               const first = `${currentFrag[0]},${currentFrag[1]}`
+               const last = `${currentFrag[currentFrag.length -2]},${currentFrag[currentFrag.length -1]}`
+
+
+               const matchingStart = lineStringByLastPoint.get(first);
+                if(matchingStart && matchingStart !== currentFrag){
+                    currentFrag.splice(0, 0, ...matchingStart.slice(0, matchingStart.length - 2))
+                   continue
+               }
+
+
+               const matchingEnd = lineStringByFirstPoint.get(last)
+               if (matchingEnd && matchingEnd !== currentFrag){
+                     currentFrag.push(...matchingEnd.slice(2))
+                     continue;
+               }
+
+               if (first === last){
+                isClosed = true
+            }else if(
+                currentFrag[0] < multiplier*buffer || currentFrag[0] > multiplier*(tile.width-buffer-1) ||
+                currentFrag[1] < multiplier*buffer || currentFrag[1] > multiplier*(tile.height-buffer-1)
+                ){
+                    isClosed=true
+                }else{
+                    //we're out of other fragments so just make it closed
+                   currentFrag.push(currentFrag[0], currentFrag[1])
+                    isClosed=true
+                }
+
+           }
+           closedLevel.push(currentFrag)
+       }
+  }
+   return closedSegments
+}
+
+
 /**
  * Generates contour lines from a HeightTile
  *
@@ -183,7 +232,8 @@ export default function generateIsolines(
   if (!interval) {
     return {};
   }
-  const multiplier = extent / (tile.width - 1);
+    const multiplier = extent / (tile.width - 1);
+
   let tld: number, trd: number, bld: number, brd: number;
   let r: number, c: number;
   const segments: { [ele: string]: number[][] } = {};
@@ -216,9 +266,6 @@ export default function generateIsolines(
     }
   }
 
-  // Most marching-squares implementations (d3-contour, gdal-contour) make one pass through the matrix per threshold.
-  // This implementation makes a single pass through the matrix, building up all of the contour lines at the
-  // same time to improve performance.
   for (r = 1 - buffer; r < tile.height + buffer; r++) {
     trd = tile.get(0, r - 1);
     brd = tile.get(0, r);
@@ -304,7 +351,6 @@ export default function generateIsolines(
       }
     }
   }
-
   for (const [level, fragmentByStart] of fragmentByStartByLevel.entries()) {
     let list: number[][] | null = null;
     for (const value of fragmentByStart.values()) {
@@ -317,5 +363,7 @@ export default function generateIsolines(
     }
   }
 
-  return segments;
+   const closedSegments = closePolygons(segments, tile, buffer, multiplier);
+
+  return closedSegments;
 }
