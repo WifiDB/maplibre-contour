@@ -146,72 +146,138 @@ function ratio(a: number, b: number, c: number) {
   return (b - a) / (c - a);
 }
 
-function closePolygons(segments: { [ele: number]: number[][] }, tile: HeightTile, buffer: number, multiplier: number){
+function closePolygons(segments: { [ele: number]: number[][] }, tile: HeightTile, buffer: number, multiplier: number) {
   const closedSegments: { [ele: number]: number[][] } = {};
-  for(const level in segments){
-       const frags = segments[level];
-        if(!frags){
-          continue;
+  for (const level in segments) {
+    const frags = segments[level];
+    if (!frags) {
+      continue;
+    }
+    const closedLevel = closedSegments[level] = [] as number[][];
+    const lineStringByFirstPoint = new Map<string, number[]>();
+    const lineStringByLastPoint = new Map<string, number[]>();
+
+    for (const frag of frags) {
+      const first = `${frag[0]},${frag[1]}`;
+      const last = `${frag[frag.length - 2]},${frag[frag.length - 1]}`;
+      lineStringByFirstPoint.set(first, frag);
+      lineStringByLastPoint.set(last, frag);
+    }
+    const processedFrags = new Set<number[]>();
+
+    for (const frag of frags) {
+      if (processedFrags.has(frag)) {
+        continue;
+      }
+
+      const currentFrag = frag;
+      let isClosed = false;
+      while (!isClosed) {
+        processedFrags.add(currentFrag);
+        const firstX = currentFrag[0];
+        const firstY = currentFrag[1];
+        const lastX = currentFrag[currentFrag.length - 2];
+        const lastY = currentFrag[currentFrag.length - 1];
+        const first = `${firstX},${firstY}`
+        const last = `${lastX},${lastY}`
+
+
+        const matchingStart = lineStringByLastPoint.get(first);
+        if (matchingStart && matchingStart !== currentFrag) {
+          currentFrag.splice(0, 0, ...matchingStart.slice(0, matchingStart.length - 2));
+          continue
         }
-      //Explicitly declare that the closedLevel array should be able to contain number[][]
-      const closedLevel = closedSegments[level] = [] as number[][];
-         const lineStringByFirstPoint = new Map<string, number[]>()
-         const lineStringByLastPoint = new Map<string, number[]>()
-
-        for(const frag of frags){
-            const first = `${frag[0]},${frag[1]}`
-            const last = `${frag[frag.length -2]},${frag[frag.length -1]}`
-             lineStringByFirstPoint.set(first, frag)
-             lineStringByLastPoint.set(last, frag)
-         }
-       const processedFrags = new Set<number[]>()
-
-       for(const frag of frags){
-           if(processedFrags.has(frag)){
-               continue
-           }
-
-         const currentFrag = frag;
-         let isClosed = false
-        while(!isClosed){
-              processedFrags.add(currentFrag);
-               const first = `${currentFrag[0]},${currentFrag[1]}`
-               const last = `${currentFrag[currentFrag.length -2]},${currentFrag[currentFrag.length -1]}`
 
 
-               const matchingStart = lineStringByLastPoint.get(first);
-                if(matchingStart && matchingStart !== currentFrag){
-                    currentFrag.splice(0, 0, ...matchingStart.slice(0, matchingStart.length - 2))
-                   continue
-               }
+        const matchingEnd = lineStringByFirstPoint.get(last);
+        if (matchingEnd && matchingEnd !== currentFrag) {
+              currentFrag.push(...matchingEnd.slice(2))
+              continue;
+        }
 
+        if (first === last) {
+          isClosed = true;
+        } else if (
+            firstX < multiplier * buffer || firstX > multiplier * (tile.width - buffer - 1) ||
+            firstY < multiplier * buffer || firstY > multiplier * (tile.height - buffer - 1) ||
+             lastX < multiplier * buffer || lastX > multiplier * (tile.width - buffer - 1) ||
+             lastY < multiplier * buffer || lastY > multiplier * (tile.height - buffer - 1)
+        )
+         {
 
-               const matchingEnd = lineStringByFirstPoint.get(last)
-               if (matchingEnd && matchingEnd !== currentFrag){
-                     currentFrag.push(...matchingEnd.slice(2))
-                     continue;
-               }
+          const completeBoundary = (x1: number, y1: number, x2: number, y2: number, tileWidth: number, tileHeight: number)=>{
+            const points: number[] = [];
+             // if x is off the boundary
+                if(x1< multiplier*buffer)
+                {
+                    points.push(0, y1)
+                     if (y2< multiplier*buffer){
+                        points.push(0,0)
+                         points.push(x2, 0)
+                        } else if(y2>multiplier*(tileHeight - buffer)){
+                        points.push(0,multiplier*tileHeight)
+                        points.push(x2, multiplier*tileHeight)
+                    }else {
+                        points.push(0, y2)
+                    }
 
-               if (first === last){
-                isClosed = true
-            }else if(
-                currentFrag[0] < multiplier*buffer || currentFrag[0] > multiplier*(tile.width-buffer-1) ||
-                currentFrag[1] < multiplier*buffer || currentFrag[1] > multiplier*(tile.height-buffer-1)
-                ){
-                    isClosed=true
-                }else{
-                    //we're out of other fragments so just make it closed
-                   currentFrag.push(currentFrag[0], currentFrag[1])
-                    isClosed=true
+                }else if (x1 > multiplier*(tileWidth - buffer)){
+                    points.push(multiplier*tileWidth, y1)
+                    if (y2< multiplier*buffer){
+                        points.push(multiplier*tileWidth,0)
+                         points.push(x2, 0)
+                        } else if(y2>multiplier*(tileHeight - buffer)){
+                        points.push(multiplier*tileWidth,multiplier*tileHeight)
+                        points.push(x2, multiplier*tileHeight)
+                    }else {
+                        points.push(multiplier*tileWidth, y2)
+                    }
+
                 }
+             else if (y1 < multiplier * buffer){
+                    points.push(x1,0);
+                  if (x2 < multiplier*buffer){
+                        points.push(0,0)
+                         points.push(0,y2)
+                    }else if(x2 > multiplier*(tileWidth-buffer)){
+                         points.push(multiplier*tileWidth,0)
+                        points.push(multiplier*tileWidth,y2)
+                   } else{
+                       points.push(x2,0)
+                  }
+            }else if (y1 > multiplier * (tileHeight- buffer)){
+                    points.push(x1, multiplier*tileHeight)
+                    if (x2 < multiplier*buffer){
+                        points.push(0, multiplier*tileHeight)
+                         points.push(0,y2)
+                    }else if(x2 > multiplier*(tileWidth-buffer)){
+                         points.push(multiplier*tileWidth, multiplier*tileHeight)
+                        points.push(multiplier*tileWidth,y2)
+                   } else{
+                       points.push(x2, multiplier*tileHeight)
+                  }
 
-           }
-           closedLevel.push(currentFrag)
-       }
+            }
+
+           return points;
+        }
+
+         const points = completeBoundary(lastX, lastY, firstX, firstY, tile.width, tile.height);
+         currentFrag.push(...points)
+
+
+          isClosed = true;
+        } else {
+          //we're out of other fragments so just make it closed
+          currentFrag.push(currentFrag[0], currentFrag[1])
+          isClosed = true;
+        }
+      }
+       closedLevel.push(currentFrag);
+    }
   }
-   return closedSegments
+  return closedSegments;
 }
-
 
 /**
  * Generates contour lines from a HeightTile
