@@ -23,7 +23,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
 import Pbf from "pbf";
 
 export const enum GeomType {
@@ -161,29 +160,49 @@ function writeGeometry(feature: Feature, pbf?: Pbf) {
   let x = 0;
   let y = 0;
   for (const ring of geometry) {
-    let count = 1;
+      const isPolygon = ring.length > 0 && ring[0] === ring[ring.length-2] && ring[1] === ring[ring.length - 1];
+      let count = 1;
     if (type === GeomType.POINT) {
-      count = ring.length / 2;
+        count = ring.length / 2;
     }
-    pbf.writeVarint(command(1, count)); // moveto
-    // do not write polygon closing path as lineto
-    const length = ring.length / 2;
-    const lineCount = type === GeomType.POLYGON ? length - 1 : length;
-    for (let i = 0; i < lineCount; i++) {
-      if (i === 1 && type !== 1) {
-        pbf.writeVarint(command(2, lineCount - 1)); // lineto
+      if(isPolygon && type === GeomType.LINESTRING)
+    {
+      pbf.writeVarint(command(1, count)); // moveto
+       const polygonRing = ring as number[]
+      const length = polygonRing.length / 2;
+        for (let i = 0; i < length; i++) {
+             if(i === 1){
+              pbf.writeVarint(command(2, length - 1)); // lineto
+            }
+              const dx = polygonRing[i * 2] - x;
+              const dy = polygonRing[i * 2 + 1] - y;
+              pbf.writeVarint(zigzag(dx));
+              pbf.writeVarint(zigzag(dy));
+              x += dx;
+             y += dy;
+       }
+        pbf.writeVarint(command(7, 1)); // closepath
+       }
+     else {
+         pbf.writeVarint(command(1, count)); // moveto
+         const length = ring.length / 2;
+          const lineCount = type === GeomType.POLYGON ? length - 1 : length;
+        for (let i = 0; i < lineCount; i++) {
+          if (i === 1 && type !== 1) {
+            pbf.writeVarint(command(2, lineCount - 1)); // lineto
+          }
+          const dx = ring[i * 2] - x;
+          const dy = ring[i * 2 + 1] - y;
+            pbf.writeVarint(zigzag(dx));
+             pbf.writeVarint(zigzag(dy));
+          x += dx;
+          y += dy;
+       }
+     if (type === GeomType.POLYGON) {
+     pbf.writeVarint(command(7, 1)); // closepath
       }
-      const dx = ring[i * 2] - x;
-      const dy = ring[i * 2 + 1] - y;
-      pbf.writeVarint(zigzag(dx));
-      pbf.writeVarint(zigzag(dy));
-      x += dx;
-      y += dy;
-    }
-    if (type === GeomType.POLYGON) {
-      pbf.writeVarint(command(7, 1)); // closepath
-    }
   }
+}
 }
 
 function writeValue(value: PropertyValue, pbf?: Pbf) {
